@@ -7,8 +7,56 @@
 //! projecting from 4D to 3D, with hidden surface removal,
 //! and then 3D to 2D.
 //!
-//! Unlike games like <urticator.net/maze>, which display the scene as a line-art drawing,
+//! Unlike games like <https://www.urticator.net/maze/>, which display the scene as a line-art drawing,
 //! this will draw 2D surfaces. (A plane-art drawing.)
+//!
+//! # Examples
+//!
+//! ## Basics
+//!
+//! ```no_run
+//! # use render_4d::*;
+//! let canvas: web_sys::HtmlCanvasElement = unimplemented!();
+//! let texture_data = TextureData {
+//!     width: 2,
+//!     height: 2,
+//!     data: &[
+//!         0x00, 0x00, 0x00, 0xFF,
+//!         0xFF, 0x00, 0xFF, 0xFF,
+//!         0xFF, 0x00, 0xFF, 0xFF,
+//!         0x00, 0x00, 0x00, 0xFF,
+//!     ],
+//! };
+//!
+//! // In a real program, the mesh would be nonempty.
+//! let mesh = Mesh {
+//!     triangles: Box::new(std::iter::empty()),
+//!     regions: Box::new(std::iter::empty()),
+//! };
+//! let renderer = Renderer::new(&canvas, texture_data, mesh);
+//!
+//!
+//! // On each frame ...
+//!
+//! # let canvas_width = 800;
+//! # let canvas_height = 800;
+//! # let four_camera: nalgebra::Matrix5<f32>;
+//! # let three_camera: nalgebra::Matrix4<f32>;
+//!
+//! let uniforms = Uniforms {
+//!     four_camera,
+//!     three_camera,
+//!     three_screen_size: [1., 1., 1.],
+//! };
+//!
+//! renderer.clear_screen();
+//! renderer.render(([0, 0], [canvas_width, canvas_height]), &uniforms);
+//!
+//! ```
+//!
+//! ## Bigger example
+//!
+//! [Link](https://github.com/finegeometer/render-4d-rs/blob/master/examples/example/README.md)
 //!
 //! # Limitations
 //!
