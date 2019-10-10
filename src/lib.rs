@@ -1,32 +1,75 @@
+//! Display a perspective projection of a 4D scene.
+//!
+//! In the same way that a 3D scene can be projected onto a 2D screen,
+//! a 4D scene can be projected onto a 3D screen.
+//!
+//! This crate provides a `Renderer` that handles
+//! projecting from 4D to 3D, with hidden surface removal,
+//! and then 3D to 2D.
+//!
+//! Unlike games like <urticator.net/maze>, which display the scene as a line-art drawing,
+//! this will draw 2D surfaces. (A plane-art drawing.)
+//!
+//! # Limitations
+//!
+//! This crate currently only supports WebAssembly.
+//!
+//! This crate is currently not suitable for cases where there is continuous motion in the 4D scene,
+//! as changing the scene recompiles a fragment shader.
+//!
+//! This crate is nowhere close to stable. Large API changes will probably be made in the future (unless this project is abandoned).
+//!
+//! # Panics
+//!
+//! Panics should only happen if the WebGL api throws exceptions, or if the projection matrix is singular.
+
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
-#[derive(Copy, Clone)]
+/// A vertex of a renderable triangle.
+#[derive(Debug, Copy, Clone)]
 pub struct Vertex {
+    /// The position of the vertex in four-space.
     pub position: nalgebra::Vector4<f32>,
+    /// The point in the texture corresponding to this vertex.
     pub texture_coordinate: [f32; 2],
 }
 
-// TODO: Document whether inside is positive or negative
-#[derive(Clone)]
+/// A convex polychoral region of four-space.
+#[derive(Debug, Clone)]
 pub struct Region {
+    /// A point is in this region iff it is on the negative side of each of these vectors.
     pub facets: Vec<nalgebra::RowVector5<f32>>,
 }
 
+/// The required information for a texture.
+#[derive(Debug, Copy, Clone)]
 pub struct TextureData<'r> {
+    /// The width of the texture, in pixels.
     pub width: i32,
+    /// The height of the texture, in pixels.
     pub height: i32,
+    /// An array of bytes, which should be of length `4 * width * height`.
+    /// Pixel (x,y) of the texture has RGBA values `data[(width * y + x) * 4 .. (width * y + x) * 4 + 3]`.
     pub data: &'r [u8],
 }
 
+#[derive(Debug, Copy, Clone)]
 pub struct Uniforms {
+    /// The projection matrix for the camera in 4D space. Should be invertible.
     pub four_camera: nalgebra::Matrix5<f32>,
+    /// The projection matrix for the camera in the 3D screen.
     pub three_camera: nalgebra::Matrix4<f32>,
+    /// The size of the 3D screen.
     pub three_screen_size: [f32; 3],
 }
 
+/// Information about what the world looks like.
 pub struct Mesh {
+    /// The renderable triangles. These are the surfaces that may be drawn on screen.
     pub triangles: Box<dyn Iterator<Item = [Vertex; 3]>>,
+    /// The solid regions.
+    /// This is used to figure out when objects in the 4D world are hidden behind other objects.
     pub regions: Box<dyn Iterator<Item = Region>>,
 }
 
@@ -50,6 +93,8 @@ impl std::ops::Add for Mesh {
 }
 
 impl Mesh {
+    /// Given a matrix, produce a function that will transform a mesh by that transformation.
+    /// Fails if the matrix isn't invertible.
     pub fn transform(mat: nalgebra::Matrix5<f32>) -> Option<impl Fn(Mesh) -> Mesh> {
         let mat_inv = mat.try_inverse()?;
         Some(move |Mesh { triangles, regions }| Mesh {
@@ -71,12 +116,19 @@ impl Mesh {
     }
 }
 
+/// Handles rendering of a 4D scene.
+#[derive(Debug)]
 pub struct Renderer {
     permanent: RendererPermanent,
     regenerated: RendererRegenerated,
 }
 
 impl Renderer {
+    /// Create a `Renderer`.
+    /// Arguments:
+    /// - A canvas. This will be used for rendering.
+    /// - Texture data. There is only one texture; if you want more, draw several pictures on different parts of the texture.
+    /// - A mesh. This is the 4D scene that will be rendered.
     pub fn new(canvas: &web_sys::HtmlCanvasElement, texture_data: TextureData, mesh: Mesh) -> Self {
         let gl = canvas
             .get_context("webgl2")
@@ -92,15 +144,23 @@ impl Renderer {
         }
     }
 
+    /// Update the mesh.
+    /// This is useful if something changes in the world.
+    ///
+    /// ## Warning
+    /// At present, this function recompiles a fragment shader, so it might be somewhat slow.
     pub fn update_mesh(&mut self, mesh: Mesh) {
         self.regenerated = self.permanent.regenerate_mesh(mesh);
     }
 
+    /// Clear the screen. This should be done at the beginning of each frame.
     pub fn clear_screen(&self) {
         self.permanent.gl.clear_color(1., 1., 1., 1.);
         self.permanent.gl.clear(GL::COLOR_BUFFER_BIT);
     }
 
+    /// Render the 4D scene to a 3D screen, and then display the result on some part of the canvas.
+    /// You should call this once per frame, or twice if you are in VR.
     pub fn render(&self, viewport: ([i32; 2], [i32; 2]), uniforms: &Uniforms) {
         let four_camera_pos: nalgebra::Vector5<f32> = uniforms
             .four_camera
@@ -173,6 +233,7 @@ impl Renderer {
     }
 }
 
+#[derive(Debug)]
 struct RendererPermanent {
     gl: GL,
     vertex_shader: web_sys::WebGlShader,
@@ -234,6 +295,7 @@ impl RendererPermanent {
     }
 }
 
+#[derive(Debug)]
 struct RendererRegenerated {
     gl: GL,
 
@@ -320,6 +382,7 @@ impl RendererPermanent {
     }
 }
 
+#[derive(Debug)]
 struct UniformLocations {
     four_camera_a: Option<web_sys::WebGlUniformLocation>,
     four_camera_b: Option<web_sys::WebGlUniformLocation>,
@@ -430,7 +493,7 @@ void main() {
 }
 ";
 
-pub fn as_f32_array(v: &[f32]) -> js_sys::Float32Array {
+fn as_f32_array(v: &[f32]) -> js_sys::Float32Array {
     let memory_buffer = wasm_bindgen::memory()
         .dyn_into::<js_sys::WebAssembly::Memory>()
         .unwrap_throw()
