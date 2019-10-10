@@ -309,6 +309,14 @@ function init(module) {
         const ret = getObject(arg0).getFrameData(getObject(arg1));
         return ret;
     };
+    imports.wbg.__widl_f_request_animation_frame_VRDisplay = function(arg0, arg1) {
+        try {
+            const ret = getObject(arg0).requestAnimationFrame(getObject(arg1));
+            return ret;
+        } catch (e) {
+            handleError(e)
+        }
+    };
     imports.wbg.__widl_f_request_present_VRDisplay = function(arg0, arg1) {
         try {
             const ret = getObject(arg0).requestPresent(getObject(arg1));
@@ -622,7 +630,7 @@ function init(module) {
         const ret = wasm.memory;
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper164 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper162 = function(arg0, arg1, arg2) {
         const state = { a: arg0, b: arg1, cnt: 1 };
         const real = (arg0) => {
             state.cnt++;
@@ -640,14 +648,14 @@ function init(module) {
         const ret = real;
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper162 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper165 = function(arg0, arg1, arg2) {
         const state = { a: arg0, b: arg1, cnt: 1 };
         const real = (arg0) => {
             state.cnt++;
             const a = state.a;
             state.a = 0;
             try {
-                return __wbg_elem_binding1(a, state.b, arg0);
+                return __wbg_elem_binding2(a, state.b, arg0);
             } finally {
                 if (--state.cnt === 0) wasm.__wbg_function_table.get(47)(a, state.b);
                 else state.a = a;
@@ -658,14 +666,14 @@ function init(module) {
         const ret = real;
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper161 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper163 = function(arg0, arg1, arg2) {
         const state = { a: arg0, b: arg1, cnt: 1 };
         const real = (arg0) => {
             state.cnt++;
             const a = state.a;
             state.a = 0;
             try {
-                return __wbg_elem_binding2(a, state.b, arg0);
+                return __wbg_elem_binding1(a, state.b, arg0);
             } finally {
                 if (--state.cnt === 0) wasm.__wbg_function_table.get(47)(a, state.b);
                 else state.a = a;

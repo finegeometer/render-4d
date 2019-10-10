@@ -226,10 +226,16 @@ impl State {
     fn frame(&self, timestamp: f64) {
         let model: &mut Model = &mut self.0.borrow_mut();
 
-        model
-            .window
-            .request_animation_frame(&model.animation_frame_closure)
-            .unwrap_throw();
+        if let VrStatus::Presenting(display) = &model.vr_status {
+            display
+                .request_animation_frame(&model.animation_frame_closure)
+                .unwrap_throw();
+        } else {
+            model
+                .window
+                .request_animation_frame(&model.animation_frame_closure)
+                .unwrap_throw();
+        }
 
         if let Some(fps) = &mut model.fps {
             let dt = fps.frame(timestamp);
@@ -295,9 +301,9 @@ impl State {
 
 impl Model {
     #[rustfmt::skip]
-	fn four_camera(&self) -> nalgebra::Matrix5<f32> {
-		let fov: f32 = 1.57;
-		let x = (fov / 2.).tan();
+    fn four_camera(&self) -> nalgebra::Matrix5<f32> {
+        let fov: f32 = 1.57;
+        let x = (fov / 2.).tan();
         let projection = nalgebra::Matrix5::new(
             x, 0., 0., 0., 0.,
             0., x, 0., 0., 0.,
@@ -313,7 +319,7 @@ impl Model {
         let translation = nalgebra::Translation::from(-self.position).to_homogeneous();
 
         projection * rotation * translation
-	}
+    }
 
     fn move_player(&mut self, dt: f64) {
         let mut orientation = nalgebra::Matrix4::identity();
