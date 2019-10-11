@@ -3,7 +3,7 @@
 //! In the same way that a 3D scene can be projected onto a 2D screen,
 //! a 4D scene can be projected onto a 3D screen.
 //!
-//! This crate provides a `Renderer` that handles
+//! This crate provides a [`Renderer`] that handles
 //! projecting from 4D to 3D, with hidden surface removal,
 //! and then 3D to 2D.
 //!
@@ -17,32 +17,18 @@
 //! ```no_run
 //! # use render_4d::*;
 //! let canvas: web_sys::HtmlCanvasElement = unimplemented!();
-//! let texture_data = TextureData {
-//!     width: 2,
-//!     height: 2,
-//!     data: &[
-//!         0x00, 0x00, 0x00, 0xFF,
-//!         0xFF, 0x00, 0xFF, 0xFF,
-//!         0xFF, 0x00, 0xFF, 0xFF,
-//!         0x00, 0x00, 0x00, 0xFF,
-//!     ],
-//! };
+//! # let texture_data: TextureData = unimplemented!();
+//! # let hypercube_mesh: Mesh = unimplemented!();
 //!
-//! // In a real program, the mesh would be nonempty.
-//! let mesh = Mesh {
-//!     triangles: Box::new(std::iter::empty()),
-//!     regions: Box::new(std::iter::empty()),
-//! };
-//! let renderer = Renderer::new(&canvas, texture_data, mesh);
+//! let renderer = Renderer::new(&canvas, texture_data, hypercube_mesh);
 //!
 //!
 //! // On each frame ...
 //!
 //! # let canvas_width = 800;
 //! # let canvas_height = 800;
-//! # let four_camera: nalgebra::Matrix5<f32>;
-//! # let three_camera: nalgebra::Matrix4<f32>;
-//!
+//! # let four_camera: nalgebra::Matrix5<f32> = unimplemented!();
+//! # let three_camera: nalgebra::Matrix4<f32> = unimplemented!();
 //! let uniforms = Uniforms {
 //!     four_camera,
 //!     three_camera,
@@ -69,12 +55,42 @@
 //!
 //! # Panics
 //!
-//! Panics should only happen if the WebGL api throws exceptions, or if the projection matrix is singular.
+//! Panics should only happen if the WebGL API throws exceptions, or if the projection matrix is singular.
+//!
+//! [`Renderer`]: struct.Renderer.html
 
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
 /// A vertex of a renderable triangle.
+/// ```
+/// # use render_4d::*;
+/// // A hypercube of side length 2, centered at the origin.
+/// let mut hypercube_triangles = Vec::new();
+/// for &(i, j, k, l) in &[(0,1,2,3),(0,2,3,1),(0,3,1,2),(1,2,0,3),(1,3,2,0),(2,3,0,1)] {
+///
+///     let mut pos = nalgebra::Vector4::new(1., 1., 1., 1.);
+///     let p0 = pos;
+///     pos[k] = -1.;
+///     let p1 = pos;
+///     pos[l] = -1.;
+///     let p2 = pos;
+///     pos[k] = 1.;
+///     let p3 = pos;
+///
+///     for &(mut position) in &[p0, p1, p2, p3] {
+///         let v0 = Vertex { position, texture_coordinate: [0., 0.] };
+///         position[i] = -1.;
+///         let v1 = Vertex { position, texture_coordinate: [0., 1.] };
+///         position[j] = -1.;
+///         let v2 = Vertex { position, texture_coordinate: [1., 1.] };
+///         position[i] = 1.;
+///         let v3 = Vertex { position, texture_coordinate: [1., 0.] };
+///         hypercube_triangles.push([v0,v1,v2]);
+///         hypercube_triangles.push([v2,v3,v0]);
+///     }
+/// }
+/// ```
 #[derive(Debug, Copy, Clone)]
 pub struct Vertex {
     /// The position of the vertex in four-space.
@@ -84,6 +100,22 @@ pub struct Vertex {
 }
 
 /// A convex polychoral region of four-space.
+/// ```
+/// # use render_4d::*;
+/// // A hypercube of side length 2, centered at the origin.
+/// let hypercube_region = Region {
+///    facets: vec![
+///        nalgebra::RowVector5::new(1., 0., 0., 0., -1.),
+///        nalgebra::RowVector5::new(-1., 0., 0., 0., -1.),
+///        nalgebra::RowVector5::new(0., 1., 0., 0., -1.),
+///        nalgebra::RowVector5::new(0., -1., 0., 0., -1.),
+///        nalgebra::RowVector5::new(0., 0., 1., 0., -1.),
+///        nalgebra::RowVector5::new(0., 0., -1., 0., -1.),
+///        nalgebra::RowVector5::new(0., 0., 0., 1., -1.),
+///        nalgebra::RowVector5::new(0., 0., 0., -1., -1.),
+///    ],
+/// };
+/// ```
 #[derive(Debug, Clone)]
 pub struct Region {
     /// A point is in this region iff it is on the negative side of each of these vectors.
@@ -91,6 +123,19 @@ pub struct Region {
 }
 
 /// The required information for a texture.
+/// ```
+/// # use render_4d::*;
+/// let texture_data = TextureData {
+///     width: 2,
+///     height: 2,
+///     data: &[
+///         0x00, 0x00, 0x00, 0xFF,
+///         0xFF, 0x00, 0xFF, 0xFF,
+///         0xFF, 0x00, 0xFF, 0xFF,
+///         0x00, 0x00, 0x00, 0xFF,
+///     ],
+/// };
+/// ```
 #[derive(Debug, Copy, Clone)]
 pub struct TextureData<'r> {
     /// The width of the texture, in pixels.
@@ -102,6 +147,25 @@ pub struct TextureData<'r> {
     pub data: &'r [u8],
 }
 
+/// ```
+/// # use render_4d::*;
+/// let uniforms = Uniforms {
+///     four_camera: nalgebra::Matrix5::new(
+///         1., 0., 0., 0., 0.,
+///         0., 1., 0., 0., 0.,
+///         0., 0., 1., 0., 0.,
+///         0., 0., 0., -2.5/1.5, -2./1.5,
+///         0., 0., 0., -1., 0.,
+///     ),
+///     three_camera: nalgebra::Matrix4::new(
+///         1., 0., 0., 0.,
+///         0., 1., 0., 0.,
+///         0., 0., -100.01/99.99, -2./99.99,
+///         0., 0., -1., 0.,
+///     ),
+///     three_screen_size: [1., 1., 1.],
+/// };
+/// ```
 #[derive(Debug, Copy, Clone)]
 pub struct Uniforms {
     /// The projection matrix for the camera in 4D space. Should be invertible.
@@ -113,6 +177,15 @@ pub struct Uniforms {
 }
 
 /// Information about what the world looks like.
+/// ```no_run
+/// # use render_4d::*;
+/// # let hypercube_triangles: Vec<[Vertex; 3]> = unimplemented!();
+/// # let hypercube_region: Region = unimplemented!();
+/// let mesh = Mesh {
+///     triangles: Box::new(hypercube_triangles.into_iter()),
+///     regions: Box::new(std::iter::once(hypercube_region)),
+/// };
+/// ```
 pub struct Mesh {
     /// The renderable triangles. These are the surfaces that may be drawn on screen.
     pub triangles: Box<dyn Iterator<Item = [Vertex; 3]>>,
@@ -143,6 +216,21 @@ impl std::ops::Add for Mesh {
 impl Mesh {
     /// Given a matrix, produce a function that will transform a mesh by that transformation.
     /// Fails if the matrix isn't invertible.
+    /// ```
+    /// # use render_4d::*;
+    /// # fn f() -> Option<Mesh> {
+    /// let mat: nalgebra::Matrix5<f32> = nalgebra::Matrix5::new(
+    ///     1.,  1.,  1.,  1., 0.,
+    ///     1.,  1., -1., -1., 0.,
+    ///     1., -1.,  1., -1., 0.,
+    ///     1., -1., -1.,  1., 0.,
+    ///     0.,  0.,  0.,  0., 1.,
+    /// );
+    /// # let hypercube_mesh: Mesh = unimplemented!();
+    /// let transformed_mesh = (Mesh::transform(mat)?)(hypercube_mesh);
+    /// # Some(transformed_mesh)
+    /// # }
+    /// ```
     pub fn transform(mat: nalgebra::Matrix5<f32>) -> Option<impl Fn(Mesh) -> Mesh> {
         let mat_inv = mat.try_inverse()?;
         Some(move |Mesh { triangles, regions }| Mesh {
@@ -165,6 +253,20 @@ impl Mesh {
 }
 
 /// Handles rendering of a 4D scene.
+/// ```no_run
+/// # use render_4d::*;
+/// # let canvas: web_sys::HtmlCanvasElement = unimplemented!();
+/// # let texture_data: TextureData = unimplemented!();
+/// # let hypercube_mesh: Mesh = unimplemented!();
+/// let renderer = Renderer::new(&canvas, texture_data, hypercube_mesh);
+///
+/// // On each frame...
+/// # let canvas_width = 800;
+/// # let canvas_height = 800;
+/// # let uniforms: Uniforms = unimplemented!();
+/// renderer.clear_screen();
+/// renderer.render(([0, 0], [canvas_width, canvas_height]), &uniforms);
+/// ```
 #[derive(Debug)]
 pub struct Renderer {
     permanent: RendererPermanent,
@@ -172,11 +274,13 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    /// Create a `Renderer`.
+    /// Create a [`Renderer`].
     /// Arguments:
     /// - A canvas. This will be used for rendering.
     /// - Texture data. There is only one texture; if you want more, draw several pictures on different parts of the texture.
     /// - A mesh. This is the 4D scene that will be rendered.
+    ///
+    /// [`Renderer`]: struct.Renderer.html
     pub fn new(canvas: &web_sys::HtmlCanvasElement, texture_data: TextureData, mesh: Mesh) -> Self {
         let gl = canvas
             .get_context("webgl2")
