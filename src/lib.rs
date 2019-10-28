@@ -62,65 +62,8 @@
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
-/// A vertex of a renderable triangle.
-/// ```
-/// # use render_4d::*;
-/// // A hypercube of side length 2, centered at the origin.
-/// let mut hypercube_triangles = Vec::new();
-/// for &(i, j, k, l) in &[(0,1,2,3),(0,2,3,1),(0,3,1,2),(1,2,0,3),(1,3,2,0),(2,3,0,1)] {
-///
-///     let mut pos = nalgebra::Vector4::new(1., 1., 1., 1.);
-///     let p0 = pos;
-///     pos[k] = -1.;
-///     let p1 = pos;
-///     pos[l] = -1.;
-///     let p2 = pos;
-///     pos[k] = 1.;
-///     let p3 = pos;
-///
-///     for &(mut position) in &[p0, p1, p2, p3] {
-///         let v0 = Vertex { position, texture_coordinate: [0., 0.] };
-///         position[i] = -1.;
-///         let v1 = Vertex { position, texture_coordinate: [0., 1.] };
-///         position[j] = -1.;
-///         let v2 = Vertex { position, texture_coordinate: [1., 1.] };
-///         position[i] = 1.;
-///         let v3 = Vertex { position, texture_coordinate: [1., 0.] };
-///         hypercube_triangles.push([v0,v1,v2]);
-///         hypercube_triangles.push([v2,v3,v0]);
-///     }
-/// }
-/// ```
-#[derive(Debug, Copy, Clone)]
-pub struct Vertex {
-    /// The position of the vertex in four-space.
-    pub position: nalgebra::Vector4<f32>,
-    /// The point in the texture corresponding to this vertex.
-    pub texture_coordinate: [f32; 2],
-}
-
-/// A convex polychoral region of four-space.
-/// ```
-/// # use render_4d::*;
-/// // A hypercube of side length 2, centered at the origin.
-/// let hypercube_region = Region {
-///    facets: vec![
-///        nalgebra::RowVector5::new(1., 0., 0., 0., -1.),
-///        nalgebra::RowVector5::new(-1., 0., 0., 0., -1.),
-///        nalgebra::RowVector5::new(0., 1., 0., 0., -1.),
-///        nalgebra::RowVector5::new(0., -1., 0., 0., -1.),
-///        nalgebra::RowVector5::new(0., 0., 1., 0., -1.),
-///        nalgebra::RowVector5::new(0., 0., -1., 0., -1.),
-///        nalgebra::RowVector5::new(0., 0., 0., 1., -1.),
-///        nalgebra::RowVector5::new(0., 0., 0., -1., -1.),
-///    ],
-/// };
-/// ```
-#[derive(Debug, Clone)]
-pub struct Region {
-    /// A point is in this region iff it is on the negative side of each of these vectors.
-    pub facets: Vec<nalgebra::RowVector5<f32>>,
-}
+mod mesh;
+pub use mesh::Mesh;
 
 /// The required information for a texture.
 /// ```
@@ -128,11 +71,16 @@ pub struct Region {
 /// let texture_data = TextureData {
 ///     width: 2,
 ///     height: 2,
+///     depth: 2,
 ///     data: &[
 ///         0x00, 0x00, 0x00, 0xFF,
+///         0x00, 0x00, 0xFF, 0xFF,
+///         0x00, 0xFF, 0x00, 0xFF,
+///         0x00, 0xFF, 0xFF, 0xFF,
+///         0xFF, 0x00, 0x00, 0xFF,
 ///         0xFF, 0x00, 0xFF, 0xFF,
-///         0xFF, 0x00, 0xFF, 0xFF,
-///         0x00, 0x00, 0x00, 0xFF,
+///         0xFF, 0xFF, 0x00, 0xFF,
+///         0xFF, 0xFF, 0xFF, 0xFF,
 ///     ],
 /// };
 /// ```
@@ -142,8 +90,10 @@ pub struct TextureData<'r> {
     pub width: i32,
     /// The height of the texture, in pixels.
     pub height: i32,
-    /// An array of bytes, which should be of length `4 * width * height`.
-    /// Pixel (x,y) of the texture has RGBA values `data[(width * y + x) * 4 .. (width * y + x) * 4 + 3]`.
+    /// The depth of the texture, in pixels.
+    pub depth: i32,
+    /// An array of bytes, which should be of width `4 * width * height * depth`.
+    /// Pixel (x,y) of the texture has RGBA values `data[((z * height + y) * width + x) * 4 .. ((z * height + y) * width + x) * 4 + 3]`.
     pub data: &'r [u8],
 }
 
@@ -174,82 +124,6 @@ pub struct Uniforms {
     pub three_camera: nalgebra::Matrix4<f32>,
     /// The size of the 3D screen.
     pub three_screen_size: [f32; 3],
-}
-
-/// Information about what the world looks like.
-/// ```no_run
-/// # use render_4d::*;
-/// # let hypercube_triangles: Vec<[Vertex; 3]> = unimplemented!();
-/// # let hypercube_region: Region = unimplemented!();
-/// let mesh = Mesh {
-///     triangles: Box::new(hypercube_triangles.into_iter()),
-///     regions: Box::new(std::iter::once(hypercube_region)),
-/// };
-/// ```
-pub struct Mesh {
-    /// The renderable triangles. These are the surfaces that may be drawn on screen.
-    pub triangles: Box<dyn Iterator<Item = [Vertex; 3]>>,
-    /// The solid regions.
-    /// This is used to figure out when objects in the 4D world are hidden behind other objects.
-    pub regions: Box<dyn Iterator<Item = Region>>,
-}
-
-impl Default for Mesh {
-    fn default() -> Self {
-        Self {
-            triangles: Box::new(std::iter::empty()),
-            regions: Box::new(std::iter::empty()),
-        }
-    }
-}
-
-impl std::ops::Add for Mesh {
-    type Output = Self;
-    fn add(self, other: Self) -> Self {
-        Self {
-            triangles: Box::new(self.triangles.chain(other.triangles)),
-            regions: Box::new(self.regions.chain(other.regions)),
-        }
-    }
-}
-
-impl Mesh {
-    /// Given a matrix, produce a function that will transform a mesh by that transformation.
-    /// Fails if the matrix isn't invertible.
-    /// ```
-    /// # use render_4d::*;
-    /// # fn f() -> Option<Mesh> {
-    /// let mat: nalgebra::Matrix5<f32> = nalgebra::Matrix5::new(
-    ///     1.,  1.,  1.,  1., 0.,
-    ///     1.,  1., -1., -1., 0.,
-    ///     1., -1.,  1., -1., 0.,
-    ///     1., -1., -1.,  1., 0.,
-    ///     0.,  0.,  0.,  0., 1.,
-    /// );
-    /// # let hypercube_mesh: Mesh = unimplemented!();
-    /// let transformed_mesh = (Mesh::transform(mat)?)(hypercube_mesh);
-    /// # Some(transformed_mesh)
-    /// # }
-    /// ```
-    pub fn transform(mat: nalgebra::Matrix5<f32>) -> Option<impl Fn(Mesh) -> Mesh> {
-        let mat_inv = mat.try_inverse()?;
-        Some(move |Mesh { triangles, regions }| Mesh {
-            triangles: Box::new(triangles.map(move |mut vertices| {
-                for vertex in vertices.iter_mut() {
-                    let old_pos: nalgebra::Vector5<f32> = vertex.position.fixed_resize(1.);
-                    let new_pos: nalgebra::Vector5<f32> = mat * old_pos;
-                    vertex.position = new_pos.fixed_rows::<nalgebra::U4>(0) / new_pos[4];
-                }
-                vertices
-            })),
-            regions: Box::new(regions.map(move |mut region| {
-                for facet in region.facets.iter_mut() {
-                    *facet *= mat_inv;
-                }
-                region
-            })),
-        })
-    }
 }
 
 /// Handles rendering of a 4D scene.
@@ -337,17 +211,13 @@ impl Renderer {
         gl.uniform_matrix4fv_with_f32_array(
             self.regenerated.uniform_locations.three_camera.as_ref(),
             false,
-            &uniforms
-                .three_camera
-                .into_iter()
-                .copied()
-                .collect::<Vec<_>>(),
+            uniforms.three_camera.as_slice(),
         );
 
         gl.uniform_matrix4fv_with_f32_array(
             self.regenerated.uniform_locations.four_camera_a.as_ref(),
             false,
-            &four_camera_a.into_iter().copied().collect::<Vec<_>>(),
+            four_camera_a.as_slice(),
         );
 
         gl.uniform4f(
@@ -376,7 +246,7 @@ impl Renderer {
             uniforms.three_screen_size[2],
         );
 
-        gl.bind_texture(GL::TEXTURE_2D, Some(&self.permanent.texture));
+        gl.bind_texture(GL::TEXTURE_3D, Some(&self.permanent.texture));
         gl.uniform1i(self.regenerated.uniform_locations.texture.as_ref(), 0);
 
         gl.viewport(viewport.0[0], viewport.0[1], viewport.1[0], viewport.1[1]);
@@ -418,24 +288,25 @@ impl RendererPermanent {
         let vertex_buffer = gl.create_buffer().unwrap_throw();
 
         let texture = gl.create_texture().unwrap_throw();
-        gl.bind_texture(GL::TEXTURE_2D, Some(&texture));
+        gl.bind_texture(GL::TEXTURE_3D, Some(&texture));
 
-        gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
-            GL::TEXTURE_2D,
+        gl.tex_image_3d_with_opt_u8_array(
+            GL::TEXTURE_3D,
             0,                   // level
             GL::RGBA as i32,     // internal_format
             texture_data.width,  // width
             texture_data.height, // height
+            texture_data.depth,  // depth
             0,                   // border
             GL::RGBA,            // format
             GL::UNSIGNED_BYTE,   // type
             Some(texture_data.data),
         )
-        .expect_throw("tex_image_2d failed.");
-        gl.tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_MIN_FILTER, GL::NEAREST as i32);
-        gl.tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_MAG_FILTER, GL::NEAREST as i32);
-        gl.tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_WRAP_S, GL::CLAMP_TO_EDGE as i32);
-        gl.tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_WRAP_T, GL::CLAMP_TO_EDGE as i32);
+        .expect_throw("tex_image_3d failed.");
+        gl.tex_parameteri(GL::TEXTURE_3D, GL::TEXTURE_MIN_FILTER, GL::NEAREST as i32);
+        gl.tex_parameteri(GL::TEXTURE_3D, GL::TEXTURE_MAG_FILTER, GL::NEAREST as i32);
+        gl.tex_parameteri(GL::TEXTURE_3D, GL::TEXTURE_WRAP_S, GL::CLAMP_TO_EDGE as i32);
+        gl.tex_parameteri(GL::TEXTURE_3D, GL::TEXTURE_WRAP_T, GL::CLAMP_TO_EDGE as i32);
 
         Self {
             gl,
@@ -455,26 +326,33 @@ struct RendererRegenerated {
     uniform_locations: UniformLocations,
 
     pos_loc: u32,
-    texcoord_loc: u32,
+    facets_loc: u32,
 
     num_tris: i32,
 }
 
 impl Drop for RendererRegenerated {
     fn drop(&mut self) {
-        self.gl.enable_vertex_attrib_array(self.pos_loc);
-        self.gl.enable_vertex_attrib_array(self.texcoord_loc);
+        self.gl.disable_vertex_attrib_array(self.pos_loc);
+        self.gl.disable_vertex_attrib_array(self.facets_loc);
 
         self.gl.delete_program(Some(&self.program));
     }
 }
 
 impl RendererPermanent {
-    fn regenerate_mesh(&self, Mesh { triangles, regions }: Mesh) -> RendererRegenerated {
+    fn regenerate_mesh(&self, mesh: Mesh) -> RendererRegenerated {
         let fragment_shader = self.gl.create_shader(GL::FRAGMENT_SHADER).unwrap_throw();
-        self.gl
-            .shader_source(&fragment_shader, &regions_to_shader(regions));
+        self.gl.shader_source(&fragment_shader, &mesh.to_shader());
         self.gl.compile_shader(&fragment_shader);
+
+        web_sys::console::log_1(
+            &self
+                .gl
+                .get_shader_info_log(&fragment_shader)
+                .unwrap_throw()
+                .into(),
+        );
 
         let program = self.gl.create_program().unwrap_throw();
         self.gl.attach_shader(&program, &self.vertex_shader);
@@ -484,29 +362,18 @@ impl RendererPermanent {
         self.gl.delete_shader(Some(&fragment_shader));
 
         let pos_loc = self.gl.get_attrib_location(&program, "pos") as u32;
-        let texcoord_loc = self.gl.get_attrib_location(&program, "texcoord") as u32;
+        let facets_loc = self.gl.get_attrib_location(&program, "facets") as u32;
 
         self.gl
             .bind_buffer(GL::ARRAY_BUFFER, Some(&self.vertex_buffer));
         self.gl.enable_vertex_attrib_array(pos_loc);
         self.gl
             .vertex_attrib_pointer_with_i32(pos_loc, 4, GL::FLOAT, false, 6 * 4, 0);
-        self.gl.enable_vertex_attrib_array(texcoord_loc);
+        self.gl.enable_vertex_attrib_array(facets_loc);
         self.gl
-            .vertex_attrib_pointer_with_i32(texcoord_loc, 2, GL::FLOAT, false, 6 * 4, 4 * 4);
+            .vertex_attrib_pointer_with_i32(facets_loc, 2, GL::FLOAT, false, 6 * 4, 4 * 4);
 
-        let mut data = Vec::new();
-        for vertices in triangles {
-            for Vertex {
-                position,
-                texture_coordinate,
-            } in &vertices
-            {
-                data.extend(position.into_iter());
-                data.push(texture_coordinate[0]);
-                data.push(texture_coordinate[1]);
-            }
-        }
+        let data = mesh.to_vertex_buffer();
 
         self.gl.buffer_data_with_array_buffer_view(
             GL::ARRAY_BUFFER,
@@ -528,7 +395,7 @@ impl RendererPermanent {
             uniform_locations,
             program,
             pos_loc,
-            texcoord_loc,
+            facets_loc,
             num_tris: (data.len() / 6) as i32,
         }
     }
@@ -546,89 +413,16 @@ struct UniformLocations {
 
 type GL = web_sys::WebGl2RenderingContext;
 
-fn regions_to_shader(regions: impl Iterator<Item = Region>) -> String {
-    let mut out = String::new();
-
-    out += r"#version 300 es
-
-precision mediump float;
-
-in vec4 vpos;
-in vec2 vtexcoord;
-in vec4 vdata;
-
-out vec4 color;
-
-uniform vec4 four_camera_pos;
-uniform sampler2D tex;
-uniform vec3 three_screen_size;
-
-vec2 clip(vec2 minmax, vec4 pos, vec4 target, vec4 abcd, float e) {
-    float x = dot(abcd, pos) + e;
-    float y = dot(abcd, target) + e;
-
-    if (x > y) {
-        minmax.x = max(minmax.x, x/(x-y));
-    } else {
-        minmax.y = min(minmax.y, x/(x-y));
-    }
-
-    return minmax;
-}
-
-bool intersects_scene(vec4 pos, vec4 target) {
-    vec2 minmax;
-";
-
-    for r in regions {
-        out += "    minmax = vec2(0., 0.999);\n";
-
-        for h in r.facets {
-            out += &format!(
-                    "    minmax = clip(minmax, pos, target, vec4({:.9}, {:.9}, {:.9}, {:.9}), {:.9});\n",
-                    h[0], h[1], h[2], h[3], h[4]
-                )
-        }
-
-        out += r"
-    if (minmax.y > minmax.x) {
-        return true;
-    }
-"
-    }
-
-    out += "
-    return false;
-}
-
-void main() {
-
-    vec3 data = vdata.xyz / vdata.w;
-
-    if (abs(data.x) > three_screen_size.x || abs(data.y) > three_screen_size.y || abs(data.z) > three_screen_size.z || abs(vdata.w) < 0.) {
-        // Outside three-screen, so invisible.
-        color = vec4(1.);
-    } else if (intersects_scene(four_camera_pos, vpos)) {
-        // Occluded, so invisible.
-        color = vec4(1.);
-    } else {
-        color = (texture(tex, vtexcoord) + vec4(1.0)) / 2.0;
-    }
-}
-
-";
-
-    out
-}
-
 const VERTEX_SHADER_SOURCE: &str = r"#version 300 es
 
 in vec4 pos;
-in vec2 texcoord;
+// Secretly integers
+in vec2 facets;
 
 out vec4 vpos;
-out vec2 vtexcoord;
-out vec4 vdata;
+// Secretly integers
+out vec2 vfacets;
+out vec4 v_three_screen_pos;
 
 uniform mat4 four_camera_a;
 uniform vec4 four_camera_b;
@@ -637,11 +431,11 @@ uniform mat4 three_camera;
 
 void main() {
     vpos = pos;
-    vtexcoord = texcoord;
+    vfacets = facets;
 
-    vdata = four_camera_a * pos + four_camera_b;
+    v_three_screen_pos = four_camera_a * pos + four_camera_b;
 
-    gl_Position = three_camera * vdata.yxzw;
+    gl_Position = three_camera * v_three_screen_pos.yxzw;
 }
 ";
 
